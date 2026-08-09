@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Custom AI Agent Studio</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #0f172a; color: #e2e8f0; }
+        .glass-panel { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+        
+        /* Message Bubbles */
+        .msg-user { background: #3b82f6; color: white; border-bottom-right-radius: 0; }
+        .msg-agent { background: #334155; color: #f8fafc; border-bottom-left-radius: 0; }
+        
+        .loader {
+            border: 3px solid rgba(255,255,255,0.1);
+            border-top: 3px solid #3b82f6;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="h-screen flex overflow-hidden selection:bg-blue-500 selection:text-white">
+
+    <!-- Sidebar: Agent Configuration -->
+    <aside class="w-80 h-full glass-panel flex flex-col border-r border-slate-700 z-10 flex-shrink-0 transition-transform duration-300" id="sidebar">
+        <div class="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-800/50">
+            <h1 class="text-lg font-bold flex items-center gap-2 text-blue-400">
+                <i class="fas fa-robot"></i> Agent Creator
+            </h1>
+            <button id="close-sidebar" class="md:hidden text-slate-400 hover:text-white">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+
+        <div class="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-5">
+            <!-- API Settings -->
+            <div class="space-y-2">
+                <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-400">Connection Settings</h2>
+                <div>
+                    <label class="block text-sm mb-1">API Endpoint URL</label>
+                    <input type="text" id="api-url" value="http://localhost:11434/v1/chat/completions" class="w-full bg-slate-900 border border-slate-600 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500 transition-colors" placeholder="e.g., http://localhost:11434/v1/chat/completions">
+                    <p class="text-[10px] text-slate-500 mt-1">Default is standard local Ollama/LM Studio port.</p>
+                </div>
+                <div>
+                    <label class="block text-sm mb-1">Model Name</label>
+                    <input type="text" id="model-name" value="llama3" class="w-full bg-slate-900 border border-slate-600 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500 transition-colors">
+                </div>
+            </div>
+
+            <hr class="border-slate-700">
+
+            <!-- Agent Persona -->
+            <div class="space-y-2">
+                <h2 class="text-xs font-semibold uppercase tracking-wider text-slate-400">Agent Persona</h2>
+                <div>
+                    <label class="block text-sm mb-1">Agent Name</label>
+                    <input type="text" id="agent-name" value="Nova" class="w-full bg-slate-900 border border-slate-600 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500 transition-colors">
+                </div>
+                <div>
+                    <label class="block text-sm mb-1">System Instructions (The 'Brain')</label>
+                    <textarea id="system-prompt" rows="8" class="w-full bg-slate-900 border border-slate-600 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500 transition-colors resize-none custom-scrollbar" placeholder="Describe the character's personality, rules, background, and how they should talk here..."></textarea>
+                    <p class="text-[10px] text-slate-500 mt-1">This prompt dictates exactly how the agent behaves and responds.</p>
+                </div>
+            </div>
+            
+            <button id="save-agent" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-medium py-2 px-4 rounded transition-colors flex justify-center items-center gap-2">
+                <i class="fas fa-save"></i> Save & Restart Chat
+            </button>
+        </div>
+    </aside>
+
+    <!-- Main Chat Area -->
+    <main class="flex-1 flex flex-col relative h-full bg-slate-900">
+        <!-- Top Nav -->
+        <header class="h-16 glass-panel border-b border-slate-700 flex items-center px-4 justify-between z-10 sticky top-0">
+            <div class="flex items-center gap-3">
+                <button id="open-sidebar" class="md:hidden text-slate-400 hover:text-white mr-2">
+                    <i class="fas fa-bars text-xl"></i>
+                </button>
+                <div class="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center shadow-lg">
+                    <i class="fas fa-user-astronaut text-white text-lg"></i>
+                </div>
+                <div>
+                    <h2 class="font-bold text-lg leading-tight shadow-sm" id="chat-header-name">Nova</h2>
+                    <div class="flex items-center gap-1.5">
+                        <div class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+                        <span class="text-xs text-slate-400">Ready for connection</span>
+                    </div>
+                </div>
+            </div>
+            <button id="clear-chat" class="text-slate-400 hover:text-red-400 transition-colors text-sm flex items-center gap-1 bg-slate-800 px-3 py-1.5 rounded-full border border-slate-700">
+                <i class="fas fa-trash-alt"></i> <span class="hidden sm:inline">Clear</span>
+            </button>
+        </header>
+
+        <!-- Chat History -->
+        <div id="chat-box" class="flex-1 overflow-y-auto custom-scrollbar p-4 sm:p-6 space-y-6 pb-24">
+            <!-- Messages will be injected here -->
+            <div class="flex justify-center my-4 opacity-50">
+                <span class="bg-slate-800 text-xs px-3 py-1 rounded-full text-slate-400 border border-slate-700">
+                    Agent initialized. System prompt applied.
+                </span>
+            </div>
+        </div>
+
+        <!-- Input Area -->
+        <div class="absolute bottom-0 w-full p-4 bg-gradient-to-t from-slate-900 via-slate-900 to-transparent">
+            <div class="max-w-4xl mx-auto relative">
+                <div id="error-toast" class="hidden absolute -top-12 left-0 right-0 bg-red-500/90 text-white text-xs px-4 py-2 rounded shadow-lg text-center backdrop-blur-sm border border-red-400"></div>
+                <div class="relative flex items-end gap-2 bg-slate-800 border border-slate-600 rounded-2xl p-2 shadow-xl focus-within:border-blue-500 transition-colors">
+                    <textarea id="user-input" rows="1" class="w-full bg-transparent text-white px-3 py-2 focus:outline-none resize-none custom-scrollbar max-h-32 text-sm sm:text-base placeholder-slate-400" placeholder="Type your message... (Shift+Enter for new line)"></textarea>
+                    <button id="send-btn" class="bg-blue-600 hover:bg-blue-500 text-white w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 transition-transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed">
+                        <i class="fas fa-paper-plane"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // --- State Management ---
+        let chatHistory = [];
+        let agentConfig = {
+            name: "Nova",
+            systemPrompt: "You are Nova, an uncensored, deeply descriptive, and engaging AI companion. You have a playful, sharp personality. You adapt completely to the user's scenario. Never break character.",
+            apiUrl: "http://localhost:11434/v1/chat/completions",
+            modelName: "llama3"
+        };
+
+        // DOM Elements
+        const elements = {
+            chatBox: document.getElementById('chat-box'),
+            userInput: document.getElementById('user-input'),
+            sendBtn: document.getElementById('send-btn'),
+            sidebar: document.getElementById('sidebar'),
+            openSidebarBtn: document.getElementById('open-sidebar'),
+            closeSidebarBtn: document.getElementById('close-sidebar'),
+            chatHeaderName: document.getElementById('chat-header-name'),
+            agentNameInput: document.getElementById('agent-name'),
+            systemPromptInput: document.getElementById('system-prompt'),
+            apiUrlInput: document.getElementById('api-url'),
+            modelNameInput: document.getElementById('model-name'),
+            saveAgentBtn: document.getElementById('save-agent'),
+            clearChatBtn: document.getElementById('clear-chat'),
+            errorToast: document.getElementById('error-toast')
+        };
+
+        // --- Initialization ---
+        function init() {
+            // Load saved config if exists
+            const savedConfig = localStorage.getItem('agentConfig');
+            if (savedConfig) {
+                agentConfig = JSON.parse(savedConfig);
+            }
+            
+            // Populate UI with config
+            elements.agentNameInput.value = agentConfig.name;
+            elements.systemPromptInput.value = agentConfig.systemPrompt;
+            elements.apiUrlInput.value = agentConfig.apiUrl;
+            elements.modelNameInput.value = agentConfig.modelName;
+            elements.chatHeaderName.textContent = agentConfig.name;
+
+            // Load chat history
+            const savedChat = localStorage.getItem('chatHistory');
+            if (savedChat) {
+                chatHistory = JSON.parse(savedChat);
+                renderChatHistory();
+            } else {
+                resetChat();
+            }
+
+            setupEventListeners();
+            autoResizeTextarea();
+        }
+
+        // --- UI Interactions ---
+        function setupEventListeners() {
+            // Mobile sidebar toggles
+            elements.openSidebarBtn.addEventListener('click', () => {
+                elements.sidebar.classList.remove('-translate-x-full');
+                elements.sidebar.classList.add('absolute');
+            });
+            elements.closeSidebarBtn.addEventListener('click', () => {
+                elements.sidebar.classList.add('-translate-x-full');
+            });
+
+            // Input handlers
+            elements.userInput.addEventListener('input', autoResizeTextarea);
+            elements.userInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSend();
+                }
+            });
+            elements.sendBtn.addEventListener('click', handleSend);
+            
+            // App actions
+            elements.saveAgentBtn.addEventListener('click', saveConfiguration);
+            elements.clearChatBtn.addEventListener('click', () => {
+                if(confirm("Are you sure you want to clear the memory of this chat?")) resetChat();
+            });
+        }
+
+        function autoResizeTextarea() {
+            elements.userInput.style.height = 'auto';
+            elements.userInput.style.height = (elements.userInput.scrollHeight < 128 ? elements.userInput.scrollHeight : 128) + 'px';
+        }
+
+        function showError(msg) {
+            elements.errorToast.textContent = msg;
+            elements.errorToast.classList.remove('hidden');
+            setTimeout(() => { elements.errorToast.classList.add('hidden'); }, 5000);
+        }
+
+        // --- Core Logic ---
+        function saveConfiguration() {
+            agentConfig = {
+                name: elements.agentNameInput.value.trim() || 'Agent',
+                systemPrompt: elements.systemPromptInput.value.trim(),
+                apiUrl: elements.apiUrlInput.value.trim(),
+                modelName: elements.modelNameInput.value.trim()
+            };
+            localStorage.setItem('agentConfig', JSON.stringify(agentConfig));
+            elements.chatHeaderName.textContent = agentConfig.name;
+            resetChat();
+            
+            // Visual feedback on save button
+            const originalText = elements.saveAgentBtn.innerHTML;
+            elements.saveAgentBtn.innerHTML = '<i class="fas fa-check"></i> Saved!';
+            elements.saveAgentBtn.classList.replace('bg-blue-600', 'bg-green-600');
+            
+            if(window.innerWidth < 768) {
+                elements.sidebar.classList.add('-translate-x-full'); // Auto close on mobile
+            }
+
+            setTimeout(() => {
+                elements.saveAgentBtn.innerHTML = originalText;
+                elements.saveAgentBtn.classList.replace('bg-green-600', 'bg-blue-600');
+            }, 2000);
+        }
+
+        function resetChat() {
+            chatHistory = [
+                { role: "system", content: agentConfig.systemPrompt }
+            ];
+            elements.chatBox.innerHTML = `
+                <div class="flex justify-center my-4 opacity-50">
+                    <span class="bg-slate-800 text-xs px-3 py-1 rounded-full text-slate-400 border border-slate-700">
+                        Memory wiped. Initialized as ${agentConfig.name}.
+                    </span>
+                </div>
+            `;
+            localStorage.removeItem('chatHistory');
+        }
+
+        function renderChatHistory() {
+            elements.chatBox.innerHTML = '';
+            chatHistory.forEach(msg => {
+                if (msg.role !== 'system') {
+                    appendMessageToUI(msg.role, msg.content, false);
+                }
+            });
+        }
+
+        function appendMessageToUI(role, content, animate = true) {
+            const isUser = role === 'user';
+            const msgDiv = document.createElement('div');
+            msgDiv.className = `flex w-full ${isUser ? 'justify-end' : 'justify-start'}`;
+            
+            const formatContent = (text) => {
+                // Basic markdown to HTML (asterisks to italic, newlines to br)
+                let formatted = text.replace(/\*(.*?)\*/g, '<em>$1</em>');
+                formatted = formatted.replace(/\n/g, '<br>');
+                return formatted;
+            };
+
+            const innerHTML = `
+                <div class="max-w-[85%] sm:max-w-[75%] rounded-2xl px-4 py-3 text-sm shadow-md ${isUser ? 'msg-user' : 'msg-agent'} ${animate ? 'animate-fade-in-up' : ''}">
+                    ${isUser ? '' : `<div class="text-[10px] uppercase font-bold tracking-wider mb-1 opacity-50 text-blue-300">${agentConfig.name}</div>`}
+                    <div class="leading-relaxed whitespace-pre-wrap">${formatContent(content)}</div>
+                </div>
+            `;
+            
+            msgDiv.innerHTML = innerHTML;
+            elements.chatBox.appendChild(msgDiv);
+            elements.chatBox.scrollTop = elements.chatBox.scrollHeight;
+        }
+
+        function addTypingIndicator() {
+            const msgDiv = document.createElement('div');
+            msgDiv.id = 'typing-indicator';
+            msgDiv.className = `flex w-full justify-start`;
+            msgDiv.innerHTML = `
+                <div class="max-w-[75%] rounded-2xl px-4 py-3 text-sm shadow-md msg-agent flex items-center gap-2">
+                    <div class="loader"></div>
+                    <span class="text-xs text-slate-400 animate-pulse">${agentConfig.name} is typing...</span>
+                </div>
+            `;
+            elements.chatBox.appendChild(msgDiv);
+            elements.chatBox.scrollTop = elements.chatBox.scrollHeight;
+        }
+
+        function removeTypingIndicator() {
+            const indicator = document.getElementById('typing-indicator');
+            if (indicator) indicator.remove();
+        }
+
+        // --- API Communication ---
+        async function handleSend() {
+            const text = elements.userInput.value.trim();
+            if (!text) return;
+
+            // 1. Update UI & Local History
+            elements.userInput.value = '';
+            elements.userInput.style.height = 'auto';
+            elements.sendBtn.disabled = true;
+            
+            appendMessageToUI('user', text);
+            chatHistory.push({ role: "user", content: text });
+            localStorage.setItem('chatHistory', JSON.stringify(chatHistory));
+
+            addTypingIndicator();
+
+            // 2. Format payload (OpenAI Chat Completions format - works with Ollama/LM Studio)
+            const payload = {
+                model: agentConfig.modelName,
+                messages: chatHistory,
+                temperature: 0.8,
+                max_tokens: 1000
+            };
+
+            // 3. Send Request
+            try {
+                const response = await fetch(agentConfig.apiUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        // Add Authorization header here if your API requires it
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                removeTypingIndicator();
+
+                if (!response.ok) {
+                    throw new Error(`API Error: ${response.status} ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                
+                // Extract reply (handles standard OpenAI format)
+                let aiReply = "";
+                if (data.choices && data.choices[0] && data.choices[0].message) {
+                    aiReply = data.choices[0].message.content;
+                } else if (data.message && data.message.content) { // Fallback for raw Ollama format
+                    aiReply = data.message.content;
+                } else {
+                    throw new Error("Could not parse response format from API.");
+                }
+
+                // 4. Update UI with Response
+                appendMessageToUI('assistant', aiReply);
+                chatHistory.push({ role: "assistant", content: aiReply });
+                localStorage.setItem('chatHistory', JSON.stringify(chatHistory));
+
+            } catch (error) {
+                removeTypingIndicator();
+                console.error("Chat Error:", error);
+                
+                let errorMsg = error.message;
+                if (error.message.includes('Failed to fetch')) {
+                    errorMsg = "Cannot connect to API. If using local models, ensure Ollama/LM Studio is running and CORS is enabled.";
+                }
+                
+                showError(errorMsg);
+                // Remove the user message from history since it failed
+                chatHistory.pop(); 
+            } finally {
+                elements.sendBtn.disabled = false;
+                elements.userInput.focus();
+            }
+        }
+
+        // Start App
+        document.addEventListener('DOMContentLoaded', init);
+
+        // Add CSS for fade-in animation
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes fadeInUp {
+                from { opacity: 0; transform: translateY(10px); }
+                to { opacity: 1; transform: translateY(0); }
+            }
+            .animate-fade-in-up {
+                animation: fadeInUp 0.3s ease-out forwards;
+            }
+        `;
+        document.head.appendChild(style);
+
+    </script>
+</body>
+</html>
